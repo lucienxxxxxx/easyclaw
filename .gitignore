@@ -1,0 +1,10 @@
+node_modules/
+dist/
+release/
+
+# 虚拟机镜像需自行准备（体积较大，约 3.6GB）
+resources/ubuntu-24.04-minimal-cloudimg-amd64.img
+*.log
+.DS_Store
+.env
+.env.local

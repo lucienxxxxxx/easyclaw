@@ -1,0 +1,4 @@
+#cloud-config
+password: 123456   # ← 改成你想要的密码！（至少8位，复杂点）
+chpasswd: { expire: False }
+ssh_pwauth: True

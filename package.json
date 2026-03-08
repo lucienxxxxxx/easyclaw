@@ -1,0 +1,79 @@
+{
+  "name": "easyclaw",
+  "version": "1.0.0",
+  "description": "跨平台 QEMU 虚拟机管理工具 - 支持 macOS 和 Windows",
+  "main": "dist/main/main.js",
+  "author": "EasyClaw",
+  "license": "MIT",
+  "scripts": {
+    "check-image": "node -e \"const fs=require('fs'); if(!fs.existsSync('resources/ubuntu-24.04-minimal-cloudimg-amd64.img')){console.error('请将 ubuntu-24.04-minimal-cloudimg-amd64.img (qcow2) 放入 resources/ 目录'); process.exit(1)}\"",
+    "predev": "npm run check-image",
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:electron": "npm run build:main && node scripts/wait-port.js 5173 && cross-env NODE_ENV=development electron .",
+    "build": "npm run build:renderer && npm run build:main",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "preview": "vite preview",
+    "electron:build": "npm run check-image && npm run build && electron-builder",
+    "electron:build:mac": "npm run check-image && npm run build && electron-builder --mac",
+    "electron:build:win": "npm run check-image && npm run build && electron-builder --win",
+    "electron:build:win-x64": "npm run check-image && npm run build && electron-builder --win --x64"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "axios": "^1.6.2",
+    "node-pty": "^1.1.0",
+    "path": "^0.12.7",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "typescript": "^5.3.2",
+    "vite": "^5.0.7",
+    "vite-plugin-electron": "^0.28.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.easyclaw.app",
+    "productName": "EasyClaw",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "icon": "build/icon",
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "node_modules/node-pty/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/ubuntu-24.04-minimal-cloudimg-amd64.img",
+        "to": "ubuntu-24.04-minimal-cloudimg-amd64.img"
+      }
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "target": ["zip"]
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": ["nsis", "portable"]
+    }
+  }
+}
