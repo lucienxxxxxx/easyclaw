@@ -39,6 +39,7 @@ declare global {
         resourcesPath: string
         defaultApp: boolean
       }>
+      getDebugLog?: () => Promise<string>
     }
   }
 }
@@ -75,6 +76,12 @@ const IconExternal = () => (
 const IconMinimize = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+)
+const IconRestart = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="1 4 1 10 7 10" />
+    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
   </svg>
 )
 
@@ -125,7 +132,11 @@ export default function App() {
   const [ready, setReady] = useState(false)
   const [isExiting, setIsExiting] = useState(false)
   const [showModelTip, setShowModelTip] = useState(false)
-  const webviewRef = useRef<HTMLElement & { reload: () => void } | null>(null)
+  const webviewRef = useRef<Electron.WebviewTag | null>(null)
+  const webviewReadyRef = useRef(false)
+  const [showDebugLog, setShowDebugLog] = useState(false)
+  const [debugLog, setDebugLog] = useState('')
+  const logoClickRef = useRef<number[]>([])
 
   const MODEL_TIP_KEY = 'easyclaw-model-tip-seen'
 
@@ -171,22 +182,54 @@ export default function App() {
       setRunning(false)
       setReady(false)
       setProgress('')
+      webviewReadyRef.current = false
     })
     window.electronAPI.qemu.onError((msg) => setError(msg))
   }, [])
 
-  // SSH 隧道就绪后：标记就绪、切换到控制台、重新加载 webview；首次运行弹窗提示配置模型
+  // SSH 隧道就绪后：标记就绪、切换到控制台；首次运行弹窗提示配置模型
   useEffect(() => {
     const remove = window.electronAPI.qemu.onTunnelReady?.(() => {
       setReady(true)
       setViewMode('web')
-      setTimeout(() => webviewRef.current?.reload?.(), 100)
       if (!localStorage.getItem(MODEL_TIP_KEY)) {
         setShowModelTip(true)
       }
     })
     return () => remove?.()
   }, [])
+
+  // ready 或 embedUrl 变化时，命令式调用 loadURL 导航 webview
+  useEffect(() => {
+    if (!ready) return
+    const wv = webviewRef.current
+    if (!wv) return
+    const url = embedUrl || EMBED_URL_DEFAULT
+    let cancelled = false
+    const doLoad = () => {
+      if (cancelled) return
+      try { wv.loadURL(url) } catch { /* webview 尚未 attach */ }
+    }
+    if (webviewReadyRef.current) {
+      doLoad()
+    } else {
+      const onReady = () => {
+        webviewReadyRef.current = true
+        doLoad()
+      }
+      wv.addEventListener('dom-ready', onReady, { once: true })
+      // 兜底：about:blank 通常 <100ms 完成，500ms 后强制尝试
+      const fallback = setTimeout(() => {
+        webviewReadyRef.current = true
+        doLoad()
+      }, 500)
+      return () => {
+        cancelled = true
+        clearTimeout(fallback)
+        wv.removeEventListener('dom-ready', onReady)
+      }
+    }
+  }, [ready, embedUrl])
 
   // 监听进度
   useEffect(() => {
@@ -207,6 +250,7 @@ export default function App() {
     setRunning(false)
     setReady(false)
     setProgress('')
+    webviewReadyRef.current = false
   }
 
   const handleConfigSave = useCallback(async (cfg: VMConfig) => {
@@ -254,38 +298,47 @@ export default function App() {
           gap: 16,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'default' }}
+          onClick={() => {
+            const now = Date.now()
+            const clicks = logoClickRef.current
+            clicks.push(now)
+            // 只保留最近 2 秒内的点击
+            const recent = clicks.filter((t) => now - t < 2000)
+            logoClickRef.current = recent
+            if (recent.length >= 5) {
+              logoClickRef.current = []
+              window.electronAPI?.getDebugLog?.().then((log) => {
+                setDebugLog(log || '（无日志）')
+                setShowDebugLog(true)
+              })
+            }
+          }}
+        >
           <img src={logoImg} alt="" width={32} height={32} style={{ objectFit: 'contain' }} />
           <LogoDoodle />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {!running ? (
-            <button
-              onClick={handleStart}
-              style={{
-                padding: '6px 16px',
-                background: 'var(--accent)',
-                border: 'none',
-                borderRadius: 6,
-                color: '#fff',
-              }}
-            >
-              启动 OpenClaw
-            </button>
-          ) : (
-            <button
-              onClick={handleStop}
-              style={{
-                padding: '6px 16px',
-                background: 'var(--danger)',
-                border: 'none',
-                borderRadius: 6,
-                color: '#fff',
-              }}
-            >
-              关闭 OpenClaw
-            </button>
-          )}
+          <button
+            onClick={async () => {
+              await window.electronAPI?.relaunch?.()
+            }}
+            title="重启"
+            style={{
+              padding: '6px 12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              color: 'var(--text-primary)',
+            }}
+          >
+            <IconRestart />
+            <span>重启</span>
+          </button>
           <button
             onClick={async () => {
               if (isExiting) return
@@ -417,6 +470,90 @@ export default function App() {
         />
       )}
 
+      {showDebugLog && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 3000,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onClick={() => setShowDebugLog(false)}
+        >
+          <div
+            style={{
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              padding: 20,
+              width: '90vw',
+              maxWidth: 720,
+              maxHeight: '80vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', flex: 1 }}>运行日志</div>
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(debugLog)
+                }}
+                style={{
+                  padding: '4px 12px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 4,
+                  color: 'var(--text-primary)',
+                  fontSize: 12,
+                  marginRight: 8,
+                }}
+              >
+                复制
+              </button>
+              <button
+                onClick={() => setShowDebugLog(false)}
+                style={{
+                  padding: '4px 10px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 4,
+                  color: 'var(--text-primary)',
+                  fontSize: 14,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <pre
+              style={{
+                flex: 1,
+                minHeight: 0,
+                overflow: 'auto',
+                background: '#0d1117',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                padding: 12,
+                fontSize: 12,
+                lineHeight: 1.5,
+                color: 'var(--text-secondary)',
+                fontFamily: '"Cascadia Code", "Cascadia Mono", Menlo, Monaco, Consolas, monospace',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+                margin: 0,
+              }}
+            >
+              {debugLog}
+            </pre>
+          </div>
+        </div>
+      )}
+
       <main style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
         {running && !ready && (
           <div
@@ -519,7 +656,7 @@ export default function App() {
           </div>
         )}
         {running && (
-          <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: 'relative' }}>
+          <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
             <div
               style={{
                 position: 'absolute',
@@ -532,29 +669,21 @@ export default function App() {
             >
               <Terminal visible={running && viewMode === 'terminal'} />
             </div>
-            <div
+            <webview
+              ref={webviewRef as React.RefObject<HTMLElement>}
+              src="about:blank"
+              allow="autoplay"
               style={{
                 position: 'absolute',
                 inset: 0,
+                width: '100%',
+                height: '100%',
+                border: 'none',
                 visibility: viewMode === 'web' ? 'visible' : 'hidden',
                 zIndex: viewMode === 'web' ? 1 : 0,
               }}
-            >
-              <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                <webview
-                  ref={webviewRef}
-                  src={ready ? (embedUrl || EMBED_URL_DEFAULT) : 'about:blank'}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                  }}
-                  partition="embedded"
-                />
-              </div>
-            </div>
+              partition="embedded"
+            />
           </div>
         )}
       </main>

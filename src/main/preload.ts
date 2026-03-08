@@ -51,4 +51,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getImageStatus: () => ipcRenderer.invoke('vm:getImageStatus'),
   },
   getDebugInfo: () => ipcRenderer.invoke('get-debug-info'),
+  getDebugLog: () => ipcRenderer.invoke('get-debug-log') as Promise<string>,
 })

@@ -66,7 +66,7 @@ npm install
 Place Ubuntu 24.04 cloud image (qcow2) in `resources/`:
 
 ```bash
-cp /path/to/ubuntu-24.04-minimal-cloudimg-amd64.img resources/
+cp /path/to/ubuntu-24.04-minimal-cloudimg-amd64-compressed.img resources/
 ```
 
 > Default credentials: `ubuntu` / `123456` (after cloud-init first boot)
@@ -207,7 +207,7 @@ npm install
 将 Ubuntu 24.04 cloud image（qcow2 格式）放入 `resources/`：
 
 ```bash
-cp /path/to/ubuntu-24.04-minimal-cloudimg-amd64.img resources/
+cp /path/to/ubuntu-24.04-minimal-cloudimg-amd64-compressed.img resources/
 ```
 
 > 默认账号：`ubuntu` / `123456`（cloud-init 首次启动后生效）

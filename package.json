@@ -1,12 +1,12 @@
 {
   "name": "easyclaw",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "跨平台 QEMU 虚拟机管理工具 - 支持 macOS 和 Windows",
   "main": "dist/main/main.js",
   "author": "EasyClaw",
   "license": "MIT",
   "scripts": {
-    "check-image": "node -e \"const fs=require('fs'); if(!fs.existsSync('resources/ubuntu-24.04-minimal-cloudimg-amd64.img')){console.error('请将 ubuntu-24.04-minimal-cloudimg-amd64.img (qcow2) 放入 resources/ 目录'); process.exit(1)}\"",
+    "check-image": "node -e \"const fs=require('fs'); if(!fs.existsSync('resources/ubuntu-24.04-minimal-cloudimg-amd64-compressed.img')){console.error('请将 ubuntu-24.04-minimal-cloudimg-amd64-compressed.img (qcow2) 放入 resources/ 目录'); process.exit(1)}\"",
     "predev": "npm run check-image",
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
     "dev:renderer": "vite",
@@ -55,15 +55,18 @@
     "files": [
       "dist/**/*",
       "package.json",
-      "node_modules/node-pty/**/*"
+      "node_modules/node-pty/**/*",
+      "build/icon.ico",
+      "build/icon.icns",
+      "build/easyclaw.png"
     ],
     "asarUnpack": [
       "node_modules/node-pty/**/*"
     ],
     "extraResources": [
       {
-        "from": "resources/ubuntu-24.04-minimal-cloudimg-amd64.img",
-        "to": "ubuntu-24.04-minimal-cloudimg-amd64.img"
+        "from": "resources/ubuntu-24.04-minimal-cloudimg-amd64-compressed.img",
+        "to": "ubuntu-24.04-minimal-cloudimg-amd64-compressed.img"
       }
     ],
     "mac": {

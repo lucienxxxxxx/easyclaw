@@ -28,10 +28,14 @@ debug('main.ts 加载完成, userData=', app.getPath('userData'))
 debug('__dirname=', __dirname, 'preload路径=', path.join(__dirname, 'preload.js'))
 
 function getIconPath(): string | undefined {
-  const base = path.join(__dirname, '../../build/icon')
+  // 开发时 __dirname=dist/main，打包后 __dirname=app.asar/dist/main；build 需在 package.json files 中
+  const buildDir = path.join(__dirname, '..', '..', 'build')
   const ext = process.platform === 'win32' ? '.ico' : process.platform === 'darwin' ? '.icns' : '.png'
-  const p = base + ext
-  return fs.existsSync(p) ? p : undefined
+  const pngPath = path.join(buildDir, 'easyclaw.png')
+  const iconPath = path.join(buildDir, 'icon' + ext)
+  if (fs.existsSync(iconPath)) return iconPath
+  if (fs.existsSync(pngPath)) return pngPath
+  return undefined
 }
 
 function getTrayIconPath(): string | undefined {
@@ -74,6 +78,7 @@ function createWindow() {
     height: 800,
     minWidth: 800,
     minHeight: 600,
+    autoHideMenuBar: true,
     ...(iconPath && { icon: iconPath }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -102,6 +107,7 @@ function createWindow() {
   mainWindow.webContents.on('did-finish-load', () => {
     debug('页面加载完成')
     qemuManager.setWebContents(mainWindow!.webContents)
+    mainWindow!.setMenuBarVisibility(false)
   })
 
   mainWindow.webContents.on('did-fail-load', (_, code, desc) => {
@@ -192,6 +198,7 @@ function setupMenu() {
   const menu = Menu.buildFromTemplate(template)
   Menu.setApplicationMenu(menu)
 }
+
 
 function checkHardwareRequirements(): boolean {
   const totalMemMB = Math.floor(os.totalmem() / (1024 * 1024))
@@ -331,6 +338,15 @@ ipcMain.handle('get-debug-info', async () => {
     userData: app.getPath('userData'),
     resourcesPath: process.resourcesPath,
     defaultApp: process.defaultApp,
+  }
+})
+
+ipcMain.handle('get-debug-log', async () => {
+  if (!LOG_FILE) LOG_FILE = path.join(app.getPath('userData'), 'easyclaw-debug.log')
+  try {
+    return fs.readFileSync(LOG_FILE, 'utf8')
+  } catch {
+    return ''
   }
 })
 

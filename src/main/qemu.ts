@@ -85,7 +85,7 @@ export class QemuManager {
     return vmDir
   }
 
-  private readonly IMAGE_NAME = 'ubuntu-24.04-minimal-cloudimg-amd64.img'
+  private readonly IMAGE_NAME = 'ubuntu-24.04-minimal-cloudimg-amd64-compressed.img'
 
   /** 获取内置 qcow2 磁盘镜像源路径（打包后或开发时） */
   getBundledDiskPath(): string | null {
