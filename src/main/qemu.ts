@@ -5,6 +5,7 @@ import * as os from 'os'
 import { app } from 'electron'
 // @ts-ignore - node-pty has no typings
 import * as pty from 'node-pty'
+import { Client } from 'ssh2'
 import { SshTunnel } from './ssh-tunnel'
 export interface VMConfig {
   memory: number // MB
@@ -39,6 +40,11 @@ export class QemuManager {
   private sshTunnel: SshTunnel | null = null
   private sshTunnelConfig: { sshPort: number } | null = null
   private openclawTokenSent = false
+  /** SSH 终端：登录后通过 SSH 连接 2222 端口，终端展示由此提供 */
+  private sshTerminalClient: Client | null = null
+  private sshTerminalStream: NodeJS.ReadWriteStream | null = null
+  private lastTerminalCols = 80
+  private lastTerminalRows = 24
 
   setWebContents(wc: Electron.WebContents | null) {
     this.webContents = wc
@@ -245,7 +251,7 @@ $rest = if ($args.Length -gt 1) { $args[1..($args.Length-1)] } else { @() }
 
       this.ptyProcess.onData((data: string | Buffer) => {
         const str = typeof data === 'string' ? data : (data as Buffer).toString('utf8')
-        this.safeSend('qemu:data', str)
+        // 终端数据由 SSH 提供，QEMU PTY 仅用于内部自动化（登录、openclaw、poweroff）
         this.handleOutput(str)
       })
 
@@ -261,6 +267,8 @@ $rest = if ($args.Length -gt 1) { $args[1..($args.Length-1)] } else { @() }
 
       this.scheduleAutoLogin(config)
       this.safeSend('qemu:progress', '正在启动系统...')
+      // 终端通过 SSH 连接，启动阶段显示连接提示
+      this.safeSend('qemu:data', '\r\n\x1b[33m正在连接 SSH 终端 (localhost:2222)...\x1b[0m\r\n')
       console.log('[QemuManager] QEMU 进程已启动 (node-pty)')
       return { success: true }
     } catch (err: unknown) {
@@ -305,6 +313,11 @@ $rest = if ($args.Length -gt 1) { $args[1..($args.Length-1)] } else { @() }
           this.safeSend('qemu:progress', '等待 OpenClaw 启动...')
           console.log('[QemuManager] 登录成功，已发送 openclaw dashboard')
         }, 300)
+        // 延迟 3s 连接 SSH 终端（等 sshd 就绪）
+        setTimeout(() => {
+          this.safeSend('qemu:progress', '正在连接 SSH 终端...')
+          this.startSshTerminal()
+        }, 3000)
         // 延迟 12s 启动 SSH 隧道，等待 openclaw dashboard 监听 18789
         setTimeout(() => {
           this.safeSend('qemu:progress', '正在建立隧道...')
@@ -360,9 +373,17 @@ $rest = if ($args.Length -gt 1) { $args[1..($args.Length-1)] } else { @() }
     }, delay * 1000)
   }
 
+  /** 内部使用：向 QEMU PTY 发送按键（登录、openclaw、poweroff 等） */
   sendKey(key: string): void {
     if (this.ptyProcess) {
       this.ptyProcess.write(key)
+    }
+  }
+
+  /** 用户输入：写入 SSH 终端流（终端展示由 SSH 提供时） */
+  writeToTerminal(data: string): void {
+    if (this.sshTerminalStream) {
+      this.sshTerminalStream.write(data)
     }
   }
 
@@ -375,12 +396,70 @@ $rest = if ($args.Length -gt 1) { $args[1..($args.Length-1)] } else { @() }
     }
   }
 
-  /** 在虚拟机内执行 stty 以修正 TUI 显示尺寸（登录后调用） */
+  /** 在虚拟机内执行 stty 以修正 TUI 显示尺寸（登录后调用）；同时保存供 SSH shell 使用 */
   setGuestTerminalSize(cols: number, rows: number): void {
-    if (!this.ptyProcess || cols < 40 || rows < 10) return
-    this.resize(cols, rows)
-    this.sendKey(`stty rows ${rows} cols ${cols}\r`)
+    if (cols < 40 || rows < 10) return
+    this.lastTerminalCols = cols
+    this.lastTerminalRows = rows
+    if (this.ptyProcess) {
+      this.resize(cols, rows)
+      this.sendKey(`stty rows ${rows} cols ${cols}\r`)
+    }
+    // SSH 终端的 PTY 在建立时已设置尺寸，后续 resize 暂不动态更新
     console.log('[QemuManager] 已同步终端尺寸:', cols, 'x', rows)
+  }
+
+  /** 通过 SSH 连接 2222 端口，建立终端会话（替代 QEMU PTY 展示） */
+  private startSshTerminal(): void {
+    const cfg = this.sshTunnelConfig
+    if (!cfg || this.sshTerminalStream) return
+
+    const client = new Client()
+    this.sshTerminalClient = client
+
+    client.on('ready', () => {
+      client.shell(
+        { cols: this.lastTerminalCols, rows: this.lastTerminalRows },
+        (err, stream) => {
+          if (err) {
+            console.error('[QemuManager] SSH shell 失败:', err)
+            this.safeSend('qemu:data', '\r\n\x1b[31mSSH shell 连接失败: ' + String(err?.message ?? err) + '\x1b[0m\r\n')
+            return
+          }
+          this.sshTerminalStream = stream
+          // 清屏并提示已连接
+          this.safeSend('qemu:data', '\x1b[2J\x1b[H\x1b[32mSSH 终端已连接 (localhost:2222)\x1b[0m\r\n')
+          stream.on('data', (data: string | Buffer) => {
+            const str = typeof data === 'string' ? data : (data as Buffer).toString('utf8')
+            this.safeSend('qemu:data', str)
+          })
+          stream.on('close', () => {
+            this.sshTerminalStream = null
+            if (this.ptyProcess) {
+              this.safeSend('qemu:data', '\r\n\x1b[33mSSH 连接已断开\x1b[0m\r\n')
+            }
+          })
+          stream.stderr?.on('data', (data: string | Buffer) => {
+            const str = typeof data === 'string' ? data : (data as Buffer).toString('utf8')
+            this.safeSend('qemu:data', str)
+          })
+          console.log('[QemuManager] SSH 终端已连接')
+        }
+      )
+    })
+
+    client.on('error', (err: Error) => {
+      console.error('[QemuManager] SSH 终端错误:', err)
+      this.safeSend('qemu:data', '\r\n\x1b[31mSSH 连接失败: ' + String(err?.message ?? err) + '\x1b[0m\r\n')
+    })
+
+    client.connect({
+      host: '127.0.0.1',
+      port: cfg.sshPort,
+      username: 'ubuntu',
+      password: '123456',
+      readyTimeout: 15000,
+    })
   }
 
   private startSshTunnel(): void {
@@ -454,6 +533,11 @@ $rest = if ($args.Length -gt 1) { $args[1..($args.Length-1)] } else { @() }
 
   async stop(poweroff = true): Promise<boolean> {
     this.webContents = null
+    if (this.sshTerminalClient) {
+      this.sshTerminalClient.end()
+      this.sshTerminalClient = null
+      this.sshTerminalStream = null
+    }
     if (this.sshTunnel) {
       this.sshTunnel.stop()
       this.sshTunnel = null

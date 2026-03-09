@@ -303,7 +303,7 @@ ipcMain.handle('qemu:sendKey', async (_, key) => {
   qemuManager.sendKey(key)
 })
 ipcMain.on('qemu:input', (_, data: string) => {
-  qemuManager.sendKey(data)
+  qemuManager.writeToTerminal(data)
 })
 ipcMain.on('qemu:resize', (_, cols: number, rows: number) => {
   qemuManager.resize(cols, rows)
