@@ -14,6 +14,12 @@ export class SshTunnel {
   private onReady?: () => void
   private onError?: (err: Error) => void
 
+  private isExpectedSocketError(err: unknown): boolean {
+    const e = err as NodeJS.ErrnoException | undefined
+    const code = e?.code
+    return code === 'ECONNRESET' || code === 'EPIPE' || code === 'ECONNABORTED'
+  }
+
   constructor(opts: {
     sshPort: number
     localPort: number
@@ -49,12 +55,23 @@ export class SshTunnel {
         const server = net.createServer((socket) => {
           const srcAddr = socket.remoteAddress || '127.0.0.1'
           const srcPort = socket.remotePort || 0
+          socket.on('error', (err) => {
+            if (!this.isExpectedSocketError(err)) {
+              console.warn('[SshTunnel] local socket 错误:', err)
+            }
+          })
           ssh.forwardOut(srcAddr, srcPort, this.dstHost, this.dstPort, (err, stream) => {
             if (err) {
               console.error('[SshTunnel] forwardOut 错误:', err)
               socket.destroy()
               return
             }
+            stream.on('error', (streamErr) => {
+              if (!this.isExpectedSocketError(streamErr)) {
+                console.warn('[SshTunnel] SSH stream 错误:', streamErr)
+              }
+              socket.destroy()
+            })
             socket.pipe(stream).pipe(socket)
             stream.on('close', () => socket.destroy())
             socket.on('close', () => stream.destroy())

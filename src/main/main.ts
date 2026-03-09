@@ -19,6 +19,29 @@ function debug(...args: unknown[]) {
   }
 }
 
+function isExpectedConnectionReset(err: unknown): boolean {
+  const e = err as NodeJS.ErrnoException | undefined
+  const code = e?.code
+  return code === 'ECONNRESET' || code === 'EPIPE' || code === 'ECONNABORTED'
+}
+
+// Windows 上网络流在断开时偶发 ECONNRESET，避免触发主进程崩溃弹窗
+process.on('uncaughtException', (err) => {
+  if (isExpectedConnectionReset(err)) {
+    debug('忽略可预期连接错误 uncaughtException:', (err as Error).message)
+    return
+  }
+  debug('uncaughtException:', err)
+})
+
+process.on('unhandledRejection', (reason) => {
+  if (isExpectedConnectionReset(reason)) {
+    debug('忽略可预期连接错误 unhandledRejection:', String(reason))
+    return
+  }
+  debug('unhandledRejection:', reason)
+})
+
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 const qemuManager = new QemuManager()
