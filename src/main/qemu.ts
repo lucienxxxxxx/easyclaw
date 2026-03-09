@@ -183,7 +183,12 @@ export class QemuManager {
     const sshPort = config.sshPort ?? 2222
     // OpenClaw 默认端口：18789=gateway/chat，18791=browser control
     const nic = `user,model=virtio-net-pci,hostfwd=tcp::${sshPort}-:22,hostfwd=tcp::18789-:18789,hostfwd=tcp::18791-:18791`
-    const args = [
+    const args: string[] = []
+    if (process.platform === 'win32') {
+      args.push('-accel', 'whpx,kernel-irqchip=off', '-accel', 'hax', '-accel', 'tcg,thread=multi')
+      console.log('[QemuManager] Windows 加速: whpx(Hyper-V) -> hax(HAXM) -> tcg(兜底)')
+    }
+    args.push(
       '-m',
       String(config.memory || 512),
       '-smp',
@@ -195,7 +200,7 @@ export class QemuManager {
       'mon:stdio',
       '-nic',
       nic,
-    ]
+    )
 
     try {
       const qemuExe = path.join(qemuPath, process.platform === 'win32' ? 'qemu-system-x86_64.exe' : 'qemu-system-x86_64')
@@ -203,18 +208,45 @@ export class QemuManager {
       this.loggedIn = false
       this.openclawTokenSent = false
 
-      this.ptyProcess = pty.spawn(qemuExe, args, {
+      const spawnEnv = { ...process.env }
+      if (process.platform === 'win32') {
+        spawnEnv.LANG = 'en_US.UTF-8'
+        spawnEnv.LC_ALL = 'en_US.UTF-8'
+      }
+
+      let spawnFile: string
+      let spawnArgs: string[]
+      if (process.platform === 'win32') {
+        const wrapperPs1 = path.join(app.getPath('temp'), 'easyclaw-qemu-utf8.ps1')
+        const ps1Content = `chcp 65001 | Out-Null
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$exe = $args[0]
+$rest = if ($args.Length -gt 1) { $args[1..($args.Length-1)] } else { @() }
+& $exe @rest
+`
+        fs.writeFileSync(wrapperPs1, ps1Content, 'utf8')
+        spawnFile = 'powershell.exe'
+        spawnArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', wrapperPs1, qemuExe, ...args]
+        console.log('[QemuManager] Windows UTF-8: chcp 65001 + Console.OutputEncoding 已通过 PowerShell 包装执行')
+      } else {
+        spawnFile = qemuExe
+        spawnArgs = args
+      }
+
+      this.ptyProcess = pty.spawn(spawnFile, spawnArgs, {
         cwd: vmDir,
         cols: 80,
         rows: 24,
-        encoding: 'utf8',
+        encoding: process.platform === 'win32' ? undefined : 'utf8',
+        env: spawnEnv,
       })
 
       this.sshTunnelConfig = { sshPort }
 
-      this.ptyProcess.onData((data: string) => {
-        this.safeSend('qemu:data', data)
-        this.handleOutput(data)
+      this.ptyProcess.onData((data: string | Buffer) => {
+        const str = typeof data === 'string' ? data : (data as Buffer).toString('utf8')
+        this.safeSend('qemu:data', str)
+        this.handleOutput(str)
       })
 
       this.ptyProcess.onExit(({ exitCode }) => {
@@ -245,9 +277,11 @@ export class QemuManager {
     if (this.outputBuffer.length > 8192) {
       this.outputBuffer = this.outputBuffer.slice(-4096)
     }
-    // 登录后解析 OpenClaw token
+    // 登录后解析 OpenClaw Dashboard URL 中的 token（优先匹配 "Dashboard URL:" 行）
     if (this.loggedIn && !this.openclawTokenSent) {
-      const m = this.outputBuffer.match(/#token=([a-f0-9]{40,64})/)
+      const dashboardMatch = this.outputBuffer.match(/Dashboard URL:\s*https?:\/\/[^\s]+#token=([a-f0-9]+)/i)
+      const fallbackMatch = this.outputBuffer.match(/#token=([a-f0-9]+)/)
+      const m = dashboardMatch || fallbackMatch
       if (m) {
         this.openclawTokenSent = true
         this.safeSend('qemu:openclawToken', m[1])

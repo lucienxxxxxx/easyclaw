@@ -1,6 +1,6 @@
 {
   "name": "easyclaw",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "跨平台 QEMU 虚拟机管理工具 - 支持 macOS 和 Windows",
   "main": "dist/main/main.js",
   "author": "EasyClaw",

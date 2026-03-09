@@ -17,6 +17,11 @@ export function Terminal({ visible }: TerminalProps) {
     if (!containerRef.current || initializedRef.current) return
     initializedRef.current = true
 
+    const isWindows = typeof navigator !== 'undefined' && /Windows|Win32|Win64/i.test(navigator.userAgent)
+    const fontFamily = isWindows
+      ? '"Cascadia Code", "Cascadia Mono", "Microsoft YaHei", "Microsoft YaHei UI", "SimSun", "NSimSun", "SimHei", "Microsoft JhengHei", Consolas, "Courier New", "Segoe UI Emoji", "Noto Color Emoji", monospace'
+      : '"Cascadia Code", "Cascadia Mono", Menlo, Monaco, Consolas, "Courier New", "Segoe UI Emoji", "Noto Color Emoji", monospace'
+
     const term = new XTerm({
       cursorBlink: true,
       convertEol: false,
@@ -41,8 +46,7 @@ export function Terminal({ visible }: TerminalProps) {
         brightCyan: '#56d4dd',
         brightWhite: '#f0f6fc',
       },
-      // Windows 需 Segoe UI Emoji / Cascadia Code 才能正确渲染 emoji；macOS Menlo/Monaco 已支持
-      fontFamily: '"Cascadia Code", "Cascadia Mono", Menlo, Monaco, Consolas, "Courier New", "Segoe UI Emoji", "Noto Color Emoji", monospace',
+      fontFamily,
       fontSize: 14,
     })
 
@@ -55,12 +59,42 @@ export function Terminal({ visible }: TerminalProps) {
       window.electronAPI?.qemu?.sendInput?.(data)
     })
 
-    // 不在此处 resize PTY，仅通过窗口 resize 事件（防抖）同步，避免触发 resize lock-down
+    // 宿主机复制粘贴：Ctrl/Cmd+C 复制选区，Ctrl/Cmd+V 粘贴
+    term.attachCustomKeyEventHandler((e) => {
+      const isMod = e.ctrlKey || e.metaKey
+      if (isMod && (e.key === 'c' || e.key === 'C')) {
+        const sel = term.getSelection()
+        if (sel) {
+          navigator.clipboard?.writeText(sel)
+          return false
+        }
+      }
+      if (isMod && (e.key === 'v' || e.key === 'V')) {
+        e.preventDefault()
+        navigator.clipboard?.readText().then((t) => {
+          if (t) window.electronAPI?.qemu?.sendInput?.(t)
+        })
+        return false
+      }
+      return true
+    })
+
+    // 右键粘贴
+    const el = containerRef.current
+    const onPaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData('text/plain') ?? ''
+      if (text) {
+        e.preventDefault()
+        window.electronAPI?.qemu?.sendInput?.(text)
+      }
+    }
+    el?.addEventListener('paste', onPaste)
 
     terminalRef.current = term
     fitAddonRef.current = fitAddon
 
     return () => {
+      el?.removeEventListener('paste', onPaste)
       initializedRef.current = false
       term.dispose()
       terminalRef.current = null
@@ -125,7 +159,7 @@ export function Terminal({ visible }: TerminalProps) {
         display: 'flex',
         flexDirection: 'column',
         position: 'relative',
-        padding: '16px 20px',
+        padding: '8px 12px',
       }}
     >
       {!visible && (
@@ -148,12 +182,10 @@ export function Terminal({ visible }: TerminalProps) {
         ref={containerRef}
         style={{
           flex: 1,
-          padding: 12,
           minHeight: 0,
           background: '#0d1117',
           visibility: visible ? 'visible' : 'hidden',
           border: '1px solid var(--border)',
-          borderRadius: 12,
           overflow: 'hidden',
         }}
       />
