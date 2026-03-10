@@ -175,7 +175,11 @@ export class QemuManager {
     const qemuPath = this.findQemu()
     console.log('[QemuManager] QEMU 路径:', qemuPath || '(未找到)')
     if (!qemuPath) {
-      return { success: false, error: '未找到 QEMU，请先安装: brew install qemu (macOS) 或从 qemu.org 安装 (Windows)' }
+      return {
+        success: false,
+        error:
+          '未找到 QEMU。请运行 npm run download-qemu 下载内置 QEMU，或安装系统 QEMU（macOS: brew install qemu，Windows: qemu.org）',
+      }
     }
 
     const diskPath = config.diskPath || this.getDiskPathForVm()
@@ -561,10 +565,41 @@ $rest = if ($args.Length -gt 1) { $args[1..($args.Length-1)] } else { @() }
     return { running: this.ptyProcess !== null }
   }
 
+  /** 获取内置打包的 QEMU 所在目录（优先使用），不存在则返回 null */
+  private getBundledQemuDir(): string | null {
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+    const platform =
+      process.platform === 'darwin'
+        ? `darwin-${arch}`
+        : process.platform === 'win32'
+          ? 'win32-x64'
+          : null
+    if (!platform) return null
+
+    let base: string
+    if (process.resourcesPath && !process.defaultApp) {
+      base = path.join(process.resourcesPath, 'qemu', platform)
+    } else {
+      base = path.join(app.getAppPath(), 'resources', 'qemu', platform)
+    }
+    const exeName = process.platform === 'win32' ? 'qemu-system-x86_64.exe' : 'qemu-system-x86_64'
+    const exePath =
+      process.platform === 'darwin' ? path.join(base, 'bin', exeName) : path.join(base, exeName)
+    const dir = path.dirname(exePath)
+    if (fs.existsSync(exePath)) {
+      console.log('[QemuManager] 使用内置 QEMU:', dir)
+      return dir
+    }
+    return null
+  }
+
   private findQemu(): string | null {
+    // 优先使用内置打包的 QEMU
+    const bundled = this.getBundledQemuDir()
+    if (bundled) return bundled
+
     if (process.platform === 'darwin') {
-      const homeBrew = '/opt/homebrew/bin/'
-      const paths = ['/opt/homebrew/bin/', '/usr/local/bin/']
+      const paths = ['/opt/homebrew/bin', '/usr/local/bin']
       for (const p of paths) {
         const qemu = path.join(p, 'qemu-system-x86_64')
         if (fs.existsSync(qemu)) return p
@@ -576,11 +611,10 @@ $rest = if ($args.Length -gt 1) { $args[1..($args.Length-1)] } else { @() }
       const dirs = envPath.split(path.delimiter)
       for (const d of dirs) {
         const qemu = path.join(d, 'qemu-system-x86_64.exe')
-        if (fs.existsSync(qemu)) return d + path.sep
+        if (fs.existsSync(qemu)) return d
       }
     }
 
-    // 尝试直接调用
     try {
       const { execSync } = require('child_process')
       execSync('qemu-system-x86_64 --version', { stdio: 'pipe' })

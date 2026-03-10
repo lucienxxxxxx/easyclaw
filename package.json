@@ -7,6 +7,7 @@
   "license": "MIT",
   "scripts": {
     "check-image": "node -e \"const fs=require('fs'); if(!fs.existsSync('resources/ubuntu-24.04-minimal-cloudimg-amd64-compressed.img')){console.error('请将 ubuntu-24.04-minimal-cloudimg-amd64-compressed.img (qcow2) 放入 resources/ 目录'); process.exit(1)}\"",
+    "download-qemu": "node scripts/download-qemu.js",
     "predev": "npm run check-image",
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
     "dev:renderer": "vite",
@@ -15,10 +16,10 @@
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "preview": "vite preview",
-    "electron:build": "npm run check-image && npm run build && electron-builder",
-    "electron:build:mac": "npm run check-image && npm run build && electron-builder --mac",
-    "electron:build:win": "npm run check-image && npm run build && electron-builder --win",
-    "electron:build:win-x64": "npm run check-image && npm run build && electron-builder --win --x64"
+    "electron:build": "npm run download-qemu && npm run check-image && npm run build && electron-builder",
+    "electron:build:mac": "npm run download-qemu && npm run check-image && npm run build && electron-builder --mac",
+    "electron:build:win": "npm run download-qemu && npm run check-image && npm run build && electron-builder --win",
+    "electron:build:win-x64": "npm run download-qemu && npm run check-image && npm run build && electron-builder --win --x64"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
@@ -67,6 +68,11 @@
       {
         "from": "resources/ubuntu-24.04-minimal-cloudimg-amd64-compressed.img",
         "to": "ubuntu-24.04-minimal-cloudimg-amd64-compressed.img"
+      },
+      {
+        "from": "resources/qemu",
+        "to": "qemu",
+        "filter": ["**/*"]
       }
     ],
     "mac": {
