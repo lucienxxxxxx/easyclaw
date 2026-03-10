@@ -73,6 +73,10 @@
         "from": "resources/qemu",
         "to": "qemu",
         "filter": ["**/*"]
+      },
+      {
+        "from": "scripts/download-qemu.js",
+        "to": "scripts/download-qemu.js"
       }
     ],
     "mac": {

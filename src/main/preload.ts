@@ -52,4 +52,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getDebugInfo: () => ipcRenderer.invoke('get-debug-info'),
   getDebugLog: () => ipcRenderer.invoke('get-debug-log') as Promise<string>,
+  env: {
+    check: () => ipcRenderer.invoke('env:check'),
+    fix: (id: string) => ipcRenderer.invoke('env:fix', id),
+  },
 })

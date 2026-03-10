@@ -3,6 +3,7 @@ import path from 'path'
 import fs from 'fs'
 import os from 'os'
 import { QemuManager } from './qemu'
+import { checkEnvironment, fixEnvironment, type EnvCheckResult } from './env-checker'
 
 let LOG_FILE = ''
 
@@ -285,9 +286,55 @@ app.on('activate', () => {
   }
 })
 
+// 环境检查：启动前完整审查，缺少则尝试自动安装
+ipcMain.handle('env:check', async (): Promise<EnvCheckResult> => {
+  debug('IPC env:check')
+  return checkEnvironment()
+})
+
+ipcMain.handle('env:fix', async (_, id: string): Promise<{ success: boolean; error?: string }> => {
+  debug('IPC env:fix', id)
+  const wc = BrowserWindow.getAllWindows()[0]?.webContents
+  return fixEnvironment(id, (p) => {
+    wc?.send('qemu:progress', p.phase + (p.detail ? ` - ${p.detail}` : ''))
+  })
+})
+
 // IPC handlers for QEMU
 ipcMain.handle('qemu:start', async (_, config) => {
   debug('IPC qemu:start', config)
+  const wc = BrowserWindow.getAllWindows()[0]?.webContents
+  wc?.send('qemu:progress', '正在检查运行环境...')
+  // 启动前环境审查
+  const envResult = await checkEnvironment()
+  if (!envResult.ok) {
+    const errorItems = envResult.checks.filter((c) => c.status === 'error')
+    const fixable = errorItems.filter((c) => c.fixable)
+    if (fixable.length > 0) {
+      debug('尝试自动修复:', fixable.map((c) => c.id))
+      for (const item of fixable) {
+        const wc = BrowserWindow.getAllWindows()[0]?.webContents
+        const fixResult = await fixEnvironment(item.id, (p) => {
+          wc?.send('qemu:progress', p.phase + (p.detail ? ` (${p.detail})` : ''))
+        })
+        if (fixResult.success) {
+          debug('自动修复成功:', item.id)
+        } else {
+          debug('自动修复失败:', item.id, fixResult.error)
+        }
+      }
+      const recheck = await checkEnvironment()
+      if (!recheck.ok) {
+        const msgs = recheck.checks
+          .filter((c) => c.status === 'error')
+          .map((c) => `${c.name}: ${c.message}`)
+        return { success: false, error: '环境检查未通过：\n' + msgs.join('\n') }
+      }
+    } else {
+      const msgs = errorItems.map((c) => `${c.name}: ${c.message}`)
+      return { success: false, error: '环境检查未通过：\n' + msgs.join('\n') }
+    }
+  }
   return qemuManager.start(config)
 })
 

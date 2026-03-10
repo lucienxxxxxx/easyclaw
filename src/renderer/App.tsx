@@ -123,6 +123,7 @@ const LogoDoodle = () => (
 
 export default function App() {
   const [running, setRunning] = useState(false)
+  const [isStarting, setIsStarting] = useState(false)
   const [config, setConfig] = useState<VMConfig | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showConfig, setShowConfig] = useState(false)
@@ -155,11 +156,16 @@ export default function App() {
     setError(null)
     setReady(false)
     setProgress('')
-    const result = await window.electronAPI.qemu.start(config)
-    if (result.success) {
-      setRunning(true)
-    } else {
-      setError(result.error || '启动失败')
+    setIsStarting(true)
+    try {
+      const result = await window.electronAPI.qemu.start(config)
+      if (result.success) {
+        setRunning(true)
+      } else {
+        setError(result.error || '启动失败')
+      }
+    } finally {
+      setIsStarting(false)
     }
   }, [config])
 
@@ -404,9 +410,28 @@ export default function App() {
             borderBottom: '1px solid var(--danger)',
             color: 'var(--danger)',
             fontSize: 14,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
           }}
         >
-          {error}
+          <span style={{ flex: 1 }}>{error}</span>
+          <button
+            onClick={() => {
+              setError(null)
+              handleStart()
+            }}
+            style={{
+              padding: '4px 12px',
+              background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border)',
+              borderRadius: 4,
+              color: 'var(--text-primary)',
+              fontSize: 12,
+            }}
+          >
+            重试
+          </button>
         </div>
       )}
 
@@ -555,7 +580,7 @@ export default function App() {
       )}
 
       <main style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-        {running && !ready && (
+        {(running && !ready) || isStarting ? (
           <div
             style={{
               position: 'absolute',
@@ -579,9 +604,11 @@ export default function App() {
                 animation: 'spin 0.8s linear infinite',
               }}
             />
-            <div style={{ fontSize: 16, color: 'var(--text-primary)' }}>{progress || '正在启动...'}</div>
+            <div style={{ fontSize: 16, color: 'var(--text-primary)' }}>
+              {progress || (isStarting ? '正在检查环境...' : '正在启动...')}
+            </div>
           </div>
-        )}
+        ) : null}
         {running && (
           <div style={{ display: 'flex', gap: 4, padding: '8px 20px', borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)', alignItems: 'center' }}>
             <button

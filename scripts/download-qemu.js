@@ -9,8 +9,9 @@ const path = require('path')
 const { execSync } = require('child_process')
 const https = require('https')
 
+// 支持通过环境变量指定输出目录（打包应用内调用时）
 const ROOT = path.join(__dirname, '..')
-const QEMU_DIR = path.join(ROOT, 'resources', 'qemu')
+const QEMU_DIR = process.env.QEMU_OUTPUT_DIR || path.join(ROOT, 'resources', 'qemu')
 
 const QEMU_PORTABLE_URL = 'https://github.com/dirkarnez/qemu-portable/releases/download/20240822/qemu-w64-portable-20240822.zip'
 
