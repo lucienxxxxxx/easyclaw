@@ -4,6 +4,8 @@ release/
 
 # 虚拟机镜像需自行准备（体积较大，约 3.6GB）
 resources/ubuntu-24.04-minimal-cloudimg-amd64-compressed.img
+resources/cidata/ubuntu-24.04-minimal-cloudimg-amd64-compressed.img
+resources/cidata/
 # QEMU 由 npm run download-qemu 下载，不提交
 resources/qemu/
 resources/ubuntu-24.04-minimal-cloudimg-amd64.img
